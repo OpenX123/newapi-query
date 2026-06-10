@@ -9,7 +9,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = 5175;
-const API_HOST = "cloud.yiyongai.cn";
+// 两个站点的 key 不互通：用户输入的 key 只属于其中一个站点。
+// 按顺序尝试，第一个失败（key 无效 / 报错）就自动查下一个。
+const API_HOSTS = ["cloud.yiyongai.cn", "serve.yiyongai.cn"];
 const DIST_DIR = path.join(__dirname, "dist");
 
 const mimeTypes = {
@@ -71,44 +73,75 @@ const requestUpstream = (url, headers) =>
     request.end();
   });
 
+const fetchUpstream = async (apiUrl, auth) => {
+  if (typeof fetch === "function") {
+    const upstream = await fetch(apiUrl, {
+      method: "GET",
+      headers: { Authorization: auth },
+    });
+    return {
+      status: upstream.status,
+      contentType: upstream.headers.get("content-type") || "application/json",
+      body: await upstream.text(),
+    };
+  }
+  const upstream = await requestUpstream(apiUrl, { Authorization: auth });
+  return {
+    status: upstream.status,
+    contentType: upstream.headers["content-type"] || "application/json",
+    body: upstream.body,
+  };
+};
+
+// 上游成功的判定：HTTP 2xx 且业务字段为成功。
+// /api/usage/token 成功为 code===true，/api/log/token 成功为 success===true。
+const isSuccessfulPayload = (status, body) => {
+  if (status < 200 || status >= 300) return false;
+  try {
+    const json = JSON.parse(body);
+    return Boolean(json) && (json.code === true || json.success === true);
+  } catch {
+    return false;
+  }
+};
+
 const proxyRequest = async (req, res, apiPath, search = "") => {
   const auth = req.headers.authorization || "";
-  const apiUrl = `https://${API_HOST}${apiPath}${search}`;
 
-  try {
-    let status = 502;
-    let contentType = "application/json";
-    let body = "";
-
-    if (typeof fetch === "function") {
-      const upstream = await fetch(apiUrl, {
-        method: "GET",
-        headers: {
-          Authorization: auth,
-        },
-      });
-      status = upstream.status;
-      contentType = upstream.headers.get("content-type") || contentType;
-      body = await upstream.text();
-    } else {
-      const upstream = await requestUpstream(apiUrl, { Authorization: auth });
-      status = upstream.status;
-      contentType = upstream.headers["content-type"] || contentType;
-      body = upstream.body;
+  let firstResult = null;
+  for (const host of API_HOSTS) {
+    const apiUrl = `https://${host}${apiPath}${search}`;
+    try {
+      const result = await fetchUpstream(apiUrl, auth);
+      if (!firstResult) firstResult = result;
+      if (isSuccessfulPayload(result.status, result.body)) {
+        res.writeHead(result.status, {
+          "Content-Type": result.contentType,
+          ...corsHeaders,
+        });
+        res.end(result.body);
+        return;
+      }
+    } catch (error) {
+      // 当前站点请求异常，继续尝试下一个站点。
     }
-
-    res.writeHead(status, {
-      "Content-Type": contentType,
-      ...corsHeaders,
-    });
-    res.end(body);
-  } catch (error) {
-    res.writeHead(502, {
-      "Content-Type": "application/json; charset=utf-8",
-      ...corsHeaders,
-    });
-    res.end(JSON.stringify({ code: false, message: "上游请求失败" }));
   }
+
+  // 所有站点都没有返回成功结果：回传第一个站点的原始响应（含真实错误信息）。
+  if (firstResult) {
+    res.writeHead(firstResult.status, {
+      "Content-Type": firstResult.contentType,
+      ...corsHeaders,
+    });
+    res.end(firstResult.body);
+    return;
+  }
+
+  res.writeHead(502, {
+    "Content-Type": "application/json; charset=utf-8",
+    ...corsHeaders,
+  });
+  res.end(JSON.stringify({ code: false, message: "上游请求失败" }));
 };
 
 const serveIndex = (res) => {

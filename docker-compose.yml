@@ -1,0 +1,10 @@
+# 部署服务器上使用：把这个文件放到目标服务器，执行
+#   docker compose pull && docker compose up -d
+# 即可拉取最新镜像并更新。
+services:
+  newapi-query:
+    image: ghcr.io/openx123/newapi-query:latest
+    container_name: newapi-query
+    ports:
+      - "5175:5175"
+    restart: unless-stopped
