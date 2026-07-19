@@ -6,11 +6,33 @@
 2. GitHub Actions 自动用 Docker 打包，并把镜像推送到 GHCR（`ghcr.io/openx123/newapi-query`）。
 3. 另一台服务器执行一条命令拉取最新镜像并重启容器，即完成更新。
 
-镜像内含构建好的前端（`dist`）和 `server.js` 代理。代理已硬编码两个站点 `cloud.yiyongai.cn` 和 `serve.yiyongai.cn`，用户输入的 key 在哪个站点有效就自动用哪个，一个失败自动查另一个。容器监听 `5175` 端口。
+镜像内含构建好的前端（`dist`）和 `server.js` 服务。服务**直连各站点 new-api 的 PostgreSQL 数据库**查询（不再走站点域名的 HTTP 接口，不受限流影响）。用户输入的 key 在哪个站点的库里命中就用哪个站点的数据，按配置顺序自动故障转移。容器监听 `5175` 端口。
 
 ---
 
-## 一、首次准备（只做一次）
+## 一、数据库配置（环境变量）
+
+在服务器上的 `docker-compose.yml` 的 `environment` 里配置：
+
+| 变量 | 说明 |
+| --- | --- |
+| `DATABASE_URL` | 站点 1 的 PostgreSQL 连接串（**必填**，缺失则容器启动失败） |
+| `DATABASE_URL_2`、`DATABASE_URL_3`… | 更多站点，编号需连续，断号即停止扫描；顺序即故障转移顺序 |
+| `LOG_LIMIT` | 明细记录返回条数，默认 `1000`，范围 1～10000 |
+
+连接串格式：
+
+```
+postgresql://用户名:密码@主机:5432/newapi?sslmode=disable
+```
+
+> **安全提醒**
+> - 真实连接串只写在服务器上的 compose 文件里，**不要提交到 git 仓库**。
+> - 建议为查询服务单独建一个 PG 账号，只授予 `tokens`、`logs`、`users` 三张表的 `SELECT` 权限。
+
+---
+
+## 二、首次准备（只做一次）
 
 ### 1. 推代码，触发首次构建
 
@@ -40,9 +62,9 @@ echo "你的PAT" | docker login ghcr.io -u OpenX123 --password-stdin
 
 ---
 
-## 二、目标服务器上部署
+## 三、目标服务器上部署
 
-把仓库里的 `docker-compose.yml` 拷到服务器任意目录（例如 `/opt/newapi-query/`），然后：
+把仓库里的 `docker-compose.yml` 拷到服务器任意目录（例如 `/opt/newapi-query/`），**把 `environment` 里的 `DATABASE_URL` 换成真实连接串**，然后：
 
 ```bash
 cd /opt/newapi-query
@@ -51,9 +73,11 @@ docker compose up -d
 
 访问 `http://服务器IP:5175` 即可。若用 `query.yiyongai.cn` 域名，让你的 Nginx/反代指向 `127.0.0.1:5175`。
 
+启动后可用 `docker logs newapi-query` 确认没有报"未配置数据库连接"。
+
 ---
 
-## 三、以后每次更新
+## 四、以后每次更新
 
 本地推送代码后，等 Actions 构建完成（约 1～2 分钟），到服务器执行：
 
@@ -70,5 +94,6 @@ docker compose pull && docker compose up -d
 
 ## 修改站点 / 端口
 
-- 站点地址写在 `server.js` 的 `API_HOSTS` 和 `vite.config.js` 的 `API_HOSTS`，改完推送即重新打包。
+- 增删站点：改服务器上 compose 文件的 `DATABASE_URL*` 环境变量，`docker compose up -d` 重建即可生效，**无需重新打包镜像**。
 - 端口在 `docker-compose.yml` 的 `ports` 改宿主机侧（如 `"8080:5175"`）。
+- 本地开发：`DATABASE_URL=... pnpm dev`（dev 服务器同样直查数据库）。

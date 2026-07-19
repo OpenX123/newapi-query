@@ -15,14 +15,18 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
 
-# ---- 运行阶段：只跑 server.js，体积小 ----
+# ---- 运行阶段：跑 server.js，需要 pg 依赖直连数据库 ----
 FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+RUN corepack enable
 
-# server.js 仅用 Node 内置模块，不需要 node_modules
+# 只装生产依赖（pg 等），前端依赖都在 devDependencies 不会进镜像
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --prod
+
 COPY --from=builder /app/dist ./dist
-COPY server.js ./
+COPY server.js db.js ./
 
 EXPOSE 5175
 CMD ["node", "server.js"]

@@ -1,17 +1,14 @@
 import http from "http";
-import https from "https";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { URL } from "url";
+import { assertConfigured, queryUsage, queryLogs } from "./db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = 5175;
-// 两个站点的 key 不互通：用户输入的 key 只属于其中一个站点。
-// 按顺序尝试，第一个失败（key 无效 / 报错）就自动查下一个。
-const API_HOSTS = ["cloud.yiyongai.cn", "serve.yiyongai.cn"];
 const DIST_DIR = path.join(__dirname, "dist");
 
 const mimeTypes = {
@@ -45,103 +42,34 @@ const serveFile = (filePath, res) => {
   });
 };
 
-const requestUpstream = (url, headers) =>
-  new Promise((resolve, reject) => {
-    const request = https.request(
-      url,
-      {
-        method: "GET",
-        headers,
-      },
-      (response) => {
-        let body = "";
-        response.setEncoding("utf8");
-        response.on("data", (chunk) => {
-          body += chunk;
-        });
-        response.on("end", () => {
-          resolve({
-            status: response.statusCode || 502,
-            headers: response.headers || {},
-            body,
-          });
-        });
-      }
-    );
-
-    request.on("error", reject);
-    request.end();
-  });
-
-const fetchUpstream = async (apiUrl, auth) => {
-  if (typeof fetch === "function") {
-    const upstream = await fetch(apiUrl, {
-      method: "GET",
-      headers: { Authorization: auth },
-    });
-    return {
-      status: upstream.status,
-      contentType: upstream.headers.get("content-type") || "application/json",
-      body: await upstream.text(),
-    };
-  }
-  const upstream = await requestUpstream(apiUrl, { Authorization: auth });
-  return {
-    status: upstream.status,
-    contentType: upstream.headers["content-type"] || "application/json",
-    body: upstream.body,
-  };
-};
-
-// 上游成功的判定：HTTP 2xx 且业务字段为成功。
-// /api/usage/token 成功为 code===true，/api/log/token 成功为 success===true。
-const isSuccessfulPayload = (status, body) => {
-  if (status < 200 || status >= 300) return false;
-  try {
-    const json = JSON.parse(body);
-    return Boolean(json) && (json.code === true || json.success === true);
-  } catch {
-    return false;
-  }
-};
-
-const proxyRequest = async (req, res, apiPath, search = "") => {
-  const auth = req.headers.authorization || "";
-
-  let firstResult = null;
-  for (const host of API_HOSTS) {
-    const apiUrl = `https://${host}${apiPath}${search}`;
-    try {
-      const result = await fetchUpstream(apiUrl, auth);
-      if (!firstResult) firstResult = result;
-      if (isSuccessfulPayload(result.status, result.body)) {
-        res.writeHead(result.status, {
-          "Content-Type": result.contentType,
-          ...corsHeaders,
-        });
-        res.end(result.body);
-        return;
-      }
-    } catch (error) {
-      // 当前站点请求异常，继续尝试下一个站点。
-    }
-  }
-
-  // 所有站点都没有返回成功结果：回传第一个站点的原始响应（含真实错误信息）。
-  if (firstResult) {
-    res.writeHead(firstResult.status, {
-      "Content-Type": firstResult.contentType,
-      ...corsHeaders,
-    });
-    res.end(firstResult.body);
-    return;
-  }
-
-  res.writeHead(502, {
+const sendJson = (res, payload) => {
+  res.writeHead(200, {
     "Content-Type": "application/json; charset=utf-8",
     ...corsHeaders,
   });
-  res.end(JSON.stringify({ code: false, message: "上游请求失败" }));
+  res.end(JSON.stringify(payload));
+};
+
+// 从 Authorization: Bearer sk-xxx 或 ?key= 参数中取出用户输入的 key。
+const extractKey = (req, requestUrl) => {
+  const fromQuery = requestUrl.searchParams.get("key");
+  if (fromQuery && fromQuery.trim()) return fromQuery;
+  const auth = req.headers.authorization || "";
+  return auth.replace(/^Bearer\s+/i, "");
+};
+
+const handleApi = async (req, res, requestUrl) => {
+  const key = extractKey(req, requestUrl);
+  if (!key.trim()) {
+    sendJson(res, { code: false, success: false, message: "缺少 API Key" });
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/usage/token") {
+    sendJson(res, await queryUsage(key));
+    return;
+  }
+  sendJson(res, await queryLogs(key));
 };
 
 const serveIndex = (res) => {
@@ -158,13 +86,11 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (requestUrl.pathname === "/api/usage/token") {
-    proxyRequest(req, res, "/api/usage/token", requestUrl.search);
-    return;
-  }
-
-  if (requestUrl.pathname === "/api/log/token") {
-    proxyRequest(req, res, "/api/log/token", requestUrl.search);
+  if (requestUrl.pathname === "/api/usage/token" || requestUrl.pathname === "/api/log/token") {
+    handleApi(req, res, requestUrl).catch((error) => {
+      console.error(`[server] 处理请求失败：${error.message}`);
+      sendJson(res, { code: false, success: false, message: "服务内部错误" });
+    });
     return;
   }
 
@@ -182,4 +108,13 @@ const server = http.createServer((req, res) => {
   serveIndex(res);
 });
 
-server.listen(PORT);
+try {
+  assertConfigured();
+} catch (error) {
+  console.error(`[server] 启动失败：${error.message}`);
+  process.exit(1);
+}
+
+server.listen(PORT, () => {
+  console.log(`[server] 已启动：http://0.0.0.0:${PORT}`);
+});
