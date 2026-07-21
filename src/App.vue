@@ -69,6 +69,9 @@
               <tr>
                 <th>时间</th>
                 <th>模型</th>
+                <th>输入</th>
+                <th>输出</th>
+                <th>缓存</th>
                 <th>用量</th>
                 <th>消耗钱</th>
               </tr>
@@ -77,6 +80,9 @@
               <tr v-for="item in pagedItems" :key="item._rowKey">
                 <td>{{ formatTimestamp(item.created_at) }}</td>
                 <td>{{ item.model_name || "--" }}</td>
+                <td>{{ formatTokens(item.input_tokens) }}</td>
+                <td>{{ formatTokens(item.output_tokens) }}</td>
+                <td>{{ formatTokens(item.cache_tokens) }}</td>
                 <td>{{ formatQuota(item.quota) }}</td>
                 <td>{{ formatCost(item.quota) }}</td>
               </tr>
@@ -160,6 +166,11 @@ const balanceText = computed(() =>
 const formatQuota = (value) => {
   const numeric = Number(value);
   return Number.isNaN(numeric) ? "--" : numberFormat.format(numeric);
+};
+
+const formatTokens = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numberFormat.format(numeric) : "0";
 };
 
 const formatCost = (value) => {

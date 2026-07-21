@@ -126,6 +126,21 @@ export const queryUsage = async (rawKey) => {
   };
 };
 
+// 从 logs.other（JSON 文本）里解析缓存 token。
+// cache_tokens = 缓存读（已包含在 prompt_tokens 内），cache_creation_tokens = 缓存写（额外单列）。
+const parseCacheTokens = (other) => {
+  if (!other) return { read: 0, creation: 0 };
+  try {
+    const parsed = JSON.parse(other);
+    return {
+      read: Number(parsed.cache_tokens) || 0,
+      creation: Number(parsed.cache_creation_tokens) || 0,
+    };
+  } catch {
+    return { read: 0, creation: 0 };
+  }
+};
+
 // /api/log/token：返回与 new-api 兼容的 { success, data: [...] }。
 // 用 user_id + token_name 关联（老版本日志无 token_id），只取消费记录（type = 2）。
 export const queryLogs = async (rawKey) => {
@@ -137,7 +152,7 @@ export const queryLogs = async (rawKey) => {
   const { site, token } = found;
   try {
     const result = await site.pool.query(
-      `SELECT id, created_at, model_name, quota, prompt_tokens, completion_tokens, use_time, is_stream
+      `SELECT id, created_at, model_name, quota, prompt_tokens, completion_tokens, use_time, is_stream, other
          FROM logs
         WHERE user_id = $1 AND token_name = $2 AND type = 2
         ORDER BY created_at DESC
@@ -146,15 +161,28 @@ export const queryLogs = async (rawKey) => {
     );
     return {
       success: true,
-      data: result.rows.map((row) => ({
-        ...row,
-        id: Number(row.id),
-        created_at: Number(row.created_at),
-        quota: Number(row.quota),
-        prompt_tokens: Number(row.prompt_tokens),
-        completion_tokens: Number(row.completion_tokens),
-        use_time: Number(row.use_time),
-      })),
+      data: result.rows.map((row) => {
+        const promptTokens = Number(row.prompt_tokens) || 0;
+        const completionTokens = Number(row.completion_tokens) || 0;
+        const cache = parseCacheTokens(row.other);
+        return {
+          id: Number(row.id),
+          created_at: Number(row.created_at),
+          model_name: row.model_name,
+          quota: Number(row.quota),
+          // 输入为纯新输入（prompt_tokens 已含缓存读，需扣除）
+          input_tokens: Math.max(0, promptTokens - cache.read),
+          output_tokens: completionTokens,
+          // 缓存 = 缓存读 + 缓存写
+          cache_tokens: cache.read + cache.creation,
+          cache_read_tokens: cache.read,
+          cache_creation_tokens: cache.creation,
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+          use_time: Number(row.use_time),
+          is_stream: row.is_stream,
+        };
+      }),
     };
   } catch (error) {
     console.error(`[db] ${site.label} 查询日志失败：${error.message}`);
