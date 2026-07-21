@@ -4,7 +4,7 @@
       <div class="brand">
         <img
           class="brand-logo"
-          src="https://bishewuyou.oss-cn-hangzhou.aliyuncs.com/img/Claude.png"
+          src="https://oss.yiyongai.cn/img/Claude.png"
           alt="CC API Logo"
         />
         <span class="brand-name">CC API</span>
@@ -82,7 +82,7 @@
                 <td>{{ item.model_name || "--" }}</td>
                 <td>{{ formatTokens(item.input_tokens) }}</td>
                 <td>{{ formatTokens(item.output_tokens) }}</td>
-                <td>{{ formatTokens(item.cache_tokens) }}</td>
+                <td>{{ formatCache(item.cache_tokens) }}</td>
                 <td>{{ formatQuota(item.quota) }}</td>
                 <td>{{ formatCost(item.quota) }}</td>
               </tr>
@@ -171,6 +171,12 @@ const formatQuota = (value) => {
 const formatTokens = (value) => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numberFormat.format(numeric) : "0";
+};
+
+// 缓存为 0 时留空不显示。
+const formatCache = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numberFormat.format(numeric) : "";
 };
 
 const formatCost = (value) => {
