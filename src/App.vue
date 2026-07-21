@@ -72,7 +72,6 @@
                 <th>输入</th>
                 <th>输出</th>
                 <th>缓存</th>
-                <th>用量</th>
                 <th>消耗钱</th>
               </tr>
             </thead>
@@ -83,7 +82,6 @@
                 <td>{{ formatTokens(item.input_tokens) }}</td>
                 <td>{{ formatTokens(item.output_tokens) }}</td>
                 <td>{{ formatCache(item.cache_tokens) }}</td>
-                <td>{{ formatQuota(item.quota) }}</td>
                 <td>{{ formatCost(item.quota) }}</td>
               </tr>
             </tbody>
@@ -162,11 +160,6 @@ const balanceText = computed(() =>
     ? usdFormat.format(balanceValue.value / TOKEN_TO_USD_RATE)
     : "--"
 );
-
-const formatQuota = (value) => {
-  const numeric = Number(value);
-  return Number.isNaN(numeric) ? "--" : numberFormat.format(numeric);
-};
 
 const formatTokens = (value) => {
   const numeric = Number(value);
