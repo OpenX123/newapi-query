@@ -117,9 +117,37 @@ export const queryUsage = async (rawKey) => {
     }
   }
 
+  let totalTokens;
+  try {
+    const result = await site.pool.query(
+      `SELECT COALESCE(
+                SUM(
+                  COALESCE(prompt_tokens, 0)::numeric
+                  + COALESCE(completion_tokens, 0)::numeric
+                  + COALESCE(
+                      substring(
+                        COALESCE(other, '')
+                        FROM '"cache_creation_tokens"[[:space:]]*:[[:space:]]*([0-9]+)'
+                      )::numeric,
+                      0
+                    )
+                ),
+                0
+              ) AS total_tokens
+         FROM logs
+        WHERE user_id = $1 AND token_name = $2 AND type = 2`,
+      [token.user_id, token.name]
+    );
+    totalTokens = Number(result.rows[0].total_tokens);
+  } catch (error) {
+    console.error(`[db] ${site.label} 查询累计 Token 失败：${error.message}`);
+    return { code: false, message: "查询累计 Token 失败，请稍后重试" };
+  }
+
   return {
     code: true,
     data: {
+      total_tokens: totalTokens,
       total_used: Number(token.used_quota),
       total_available: totalAvailable,
     },
