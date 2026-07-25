@@ -38,12 +38,17 @@
 
       <section class="results">
         <div class="card">
-          <p class="card-label">已用额度</p>
-          <p class="card-value">{{ usageText }}</p>
-          <p class="card-caption">统计范围：当前令牌累计使用量</p>
+          <p class="card-label">消耗 Token</p>
+          <p class="card-value">{{ tokenUsageText }}</p>
+          <p class="card-caption">当前令牌全部消费记录的实际处理量</p>
         </div>
         <div class="card">
-          <p class="card-label">可用余额</p>
+          <p class="card-label">消耗余额</p>
+          <p class="card-value">{{ usedBalanceText }}</p>
+          <p class="card-caption">按美元格式展示</p>
+        </div>
+        <div class="card">
+          <p class="card-label">剩余余额</p>
           <p class="card-value">{{ balanceText }}</p>
           <p class="card-caption">按美元格式展示</p>
         </div>
@@ -132,7 +137,8 @@ const apiKey = ref("");
 const isLoading = ref(false);
 const statusText = ref("请填写 Key 并点击查询。");
 
-const usageValue = ref(null);
+const tokenUsageValue = ref(null);
+const usedBalanceValue = ref(null);
 const balanceValue = ref(null);
 const logItems = ref([]);
 const currentPage = ref(1);
@@ -152,8 +158,15 @@ const usdCostFormat = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 4,
 });
 
-const usageText = computed(() =>
-  typeof usageValue.value === "number" ? numberFormat.format(usageValue.value) : "--"
+const tokenUsageText = computed(() =>
+  typeof tokenUsageValue.value === "number"
+    ? numberFormat.format(tokenUsageValue.value)
+    : "--"
+);
+const usedBalanceText = computed(() =>
+  typeof usedBalanceValue.value === "number"
+    ? usdFormat.format(usedBalanceValue.value / TOKEN_TO_USD_RATE)
+    : "--"
 );
 const balanceText = computed(() =>
   typeof balanceValue.value === "number"
@@ -208,7 +221,8 @@ const pagedItems = computed(() => {
 });
 
 const resetValues = () => {
-  usageValue.value = null;
+  tokenUsageValue.value = null;
+  usedBalanceValue.value = null;
   balanceValue.value = null;
 };
 
@@ -240,14 +254,19 @@ const fetchUsageData = async (key) => {
     throw new Error(message);
   }
 
+  const totalTokens = Number(data.total_tokens);
   const totalUsed = Number(data.total_used);
   const totalAvailable = Number(data.total_available);
 
-  if (Number.isNaN(totalUsed) || Number.isNaN(totalAvailable)) {
+  if (
+    Number.isNaN(totalTokens)
+    || Number.isNaN(totalUsed)
+    || Number.isNaN(totalAvailable)
+  ) {
     throw new Error("额度数据异常，请确认 key 是否有效。");
   }
 
-  return { totalUsed, totalAvailable };
+  return { totalTokens, totalUsed, totalAvailable };
 };
 
 const fetchLogData = async (key) => {
@@ -278,7 +297,8 @@ const fetchUsage = async () => {
       fetchLogData(rawKey).catch((error) => ({ error })),
     ]);
 
-    usageValue.value = usageData.totalUsed;
+    tokenUsageValue.value = usageData.totalTokens;
+    usedBalanceValue.value = usageData.totalUsed;
     balanceValue.value = usageData.totalAvailable;
 
     if (Array.isArray(logData)) {
