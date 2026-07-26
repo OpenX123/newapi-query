@@ -127,6 +127,13 @@ export const queryUsage = async (rawKey) => {
                   + COALESCE(
                       substring(
                         COALESCE(other, '')
+                        FROM '"cache_tokens"[[:space:]]*:[[:space:]]*([0-9]+)'
+                      )::numeric,
+                      0
+                    )
+                  + COALESCE(
+                      substring(
+                        COALESCE(other, '')
                         FROM '"cache_creation_tokens"[[:space:]]*:[[:space:]]*([0-9]+)'
                       )::numeric,
                       0
