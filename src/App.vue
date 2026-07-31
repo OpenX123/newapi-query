@@ -50,7 +50,7 @@
         <div class="card">
           <p class="card-label">总额度</p>
           <p class="card-value">{{ totalQuotaText }}</p>
-          <p class="card-caption">消耗余额与剩余余额之和</p>
+          <p class="card-caption">原始额度总量</p>
         </div>
         <div class="card">
           <p class="card-label">剩余余额</p>
@@ -175,7 +175,7 @@ const usedBalanceText = computed(() =>
 );
 const totalQuotaText = computed(() =>
   typeof usedBalanceValue.value === "number" && typeof balanceValue.value === "number"
-    ? usdFormat.format((usedBalanceValue.value + balanceValue.value) / TOKEN_TO_USD_RATE)
+    ? `${numberFormat.format(usedBalanceValue.value + balanceValue.value)} 额度`
     : "--"
 );
 const balanceText = computed(() =>
