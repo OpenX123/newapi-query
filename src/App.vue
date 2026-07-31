@@ -48,6 +48,11 @@
           <p class="card-caption">按美元格式展示</p>
         </div>
         <div class="card">
+          <p class="card-label">总额度</p>
+          <p class="card-value">{{ totalQuotaText }}</p>
+          <p class="card-caption">消耗余额与剩余余额之和</p>
+        </div>
+        <div class="card">
           <p class="card-label">剩余余额</p>
           <p class="card-value">{{ balanceText }}</p>
           <p class="card-caption">按美元格式展示</p>
@@ -130,7 +135,7 @@
 import { computed, ref, watch } from "vue";
 
 const API_BASE = "";
-const TOKEN_TO_USD_RATE = 500000;
+const TOKEN_TO_USD_RATE = 2000000;
 const PAGE_SIZE = 20;
 
 const apiKey = ref("");
@@ -166,6 +171,11 @@ const tokenUsageText = computed(() =>
 const usedBalanceText = computed(() =>
   typeof usedBalanceValue.value === "number"
     ? usdFormat.format(usedBalanceValue.value / TOKEN_TO_USD_RATE)
+    : "--"
+);
+const totalQuotaText = computed(() =>
+  typeof usedBalanceValue.value === "number" && typeof balanceValue.value === "number"
+    ? usdFormat.format((usedBalanceValue.value + balanceValue.value) / TOKEN_TO_USD_RATE)
     : "--"
 );
 const balanceText = computed(() =>
