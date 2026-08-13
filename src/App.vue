@@ -27,13 +27,14 @@
             type="password"
             placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
             autocomplete="off"
+            :disabled="isLoading"
             @keydown.enter="fetchUsage"
           />
           <button class="btn" type="button" :disabled="isLoading" @click="fetchUsage">
             {{ isLoading ? "查询中..." : "立即查询" }}
           </button>
         </div>
-        <p class="input-hint">Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+        <p class="input-hint">Key 仅用于本次查询，不会保存。</p>
       </section>
 
       <section class="results">
@@ -41,6 +42,16 @@
           <p class="card-label">消耗 Token</p>
           <p class="card-value">{{ tokenUsageText }}</p>
           <p class="card-caption">当前令牌全部消费记录的实际处理量</p>
+        </div>
+        <div class="card">
+          <p class="card-label">令牌归属</p>
+          <p class="card-value">{{ tokenOwnerText }}</p>
+          <p class="card-caption">用户 ID：{{ tokenUserIdText }} · Token：{{ tokenNameText }}</p>
+        </div>
+        <div class="card">
+          <p class="card-label">访问 IP</p>
+          <p class="card-value">{{ ipCountText }}</p>
+          <p class="card-caption">累计去重，未记录的 IP 不计入</p>
         </div>
         <div class="card">
           <p class="card-label">消耗余额</p>
@@ -61,17 +72,8 @@
 
       <section class="records">
         <div class="records-header">
-          <div class="records-title-row">
-            <h2 class="records-title">详细使用记录</h2>
-            <label class="sort-control">
-              <span>时间排序</span>
-              <select v-model="sortOrder" class="select">
-                <option value="desc">最近在前</option>
-                <option value="asc">最早在前</option>
-              </select>
-            </label>
-          </div>
-          <p class="records-subtitle">默认按最近时间排序，可切换排序方式。</p>
+          <h2 class="records-title">详细使用记录</h2>
+          <p class="records-subtitle">按单次总 Token 从高到低排列；同量时最近在前。</p>
         </div>
         <div class="table-wrapper">
           <table class="table">
@@ -82,7 +84,9 @@
                 <th>输入</th>
                 <th>输出</th>
                 <th>缓存</th>
+                <th>总 Token</th>
                 <th>消耗钱</th>
+                <th>IP</th>
               </tr>
             </thead>
             <tbody>
@@ -92,14 +96,16 @@
                 <td>{{ formatTokens(item.input_tokens) }}</td>
                 <td>{{ formatTokens(item.output_tokens) }}</td>
                 <td>{{ formatCache(item.cache_tokens) }}</td>
+                <td>{{ formatTokens(item.total_tokens) }}</td>
                 <td>{{ formatCost(item.quota) }}</td>
+                <td>{{ item.ip || "未记录" }}</td>
               </tr>
             </tbody>
           </table>
           <p v-if="pagedItems.length === 0" class="empty-text">暂无记录</p>
           <div class="pagination">
             <div class="page-info">
-              <span>共 {{ displayItems.length }} 条</span>
+              <span>显示 {{ displayItems.length }} 条</span>
               <span>第 {{ displayItems.length ? currentPage : 0 }} / {{ totalPages }} 页</span>
             </div>
             <div class="page-actions">
@@ -132,7 +138,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 
 const API_BASE = "";
 const TOKEN_TO_USD_RATE = 2000000;
@@ -145,9 +151,10 @@ const statusText = ref("请填写 Key 并点击查询。");
 const tokenUsageValue = ref(null);
 const usedBalanceValue = ref(null);
 const balanceValue = ref(null);
+const ipCountValue = ref(null);
+const tokenInfo = ref(null);
 const logItems = ref([]);
 const currentPage = ref(1);
-const sortOrder = ref("desc");
 
 const numberFormat = new Intl.NumberFormat("en-US");
 const usdFormat = new Intl.NumberFormat("en-US", {
@@ -168,6 +175,14 @@ const tokenUsageText = computed(() =>
     ? numberFormat.format(tokenUsageValue.value)
     : "--"
 );
+const ipCountText = computed(() =>
+  typeof ipCountValue.value === "number"
+    ? `${numberFormat.format(ipCountValue.value)} 个`
+    : "--"
+);
+const tokenOwnerText = computed(() => tokenInfo.value?.username || "--");
+const tokenUserIdText = computed(() => tokenInfo.value?.user_id ?? "--");
+const tokenNameText = computed(() => tokenInfo.value?.name || "--");
 const usedBalanceText = computed(() =>
   typeof usedBalanceValue.value === "number"
     ? usdFormat.format(usedBalanceValue.value / TOKEN_TO_USD_RATE)
@@ -208,20 +223,12 @@ const formatTimestamp = (value) => {
   return new Date(time).toLocaleString();
 };
 
-const displayItems = computed(() => {
-  const filtered = logItems.value.filter((item) => Number(item.quota) > 0);
-  return filtered
-    .slice()
-    .sort((a, b) => {
-      const aTime = Number(a.created_at) || 0;
-      const bTime = Number(b.created_at) || 0;
-      return sortOrder.value === "asc" ? aTime - bTime : bTime - aTime;
-    })
-    .map((item, index) => ({
-      ...item,
-      _rowKey: `${item.id || item.created_at || "row"}-${index}`,
-    }));
-});
+const displayItems = computed(() =>
+  logItems.value.map((item, index) => ({
+    ...item,
+    _rowKey: `${item.id || item.created_at || "row"}-${index}`,
+  }))
+);
 
 const totalPages = computed(() => Math.max(1, Math.ceil(displayItems.value.length / PAGE_SIZE)));
 
@@ -234,6 +241,8 @@ const resetValues = () => {
   tokenUsageValue.value = null;
   usedBalanceValue.value = null;
   balanceValue.value = null;
+  ipCountValue.value = null;
+  tokenInfo.value = null;
 };
 
 const resetLogs = () => {
@@ -247,6 +256,7 @@ const fetchWithAuth = async (path, key) => {
     headers: {
       Authorization: `Bearer ${key}`,
     },
+    cache: "no-store",
   });
 
   if (!response.ok) {
@@ -267,20 +277,29 @@ const fetchUsageData = async (key) => {
   const totalTokens = Number(data.total_tokens);
   const totalUsed = Number(data.total_used);
   const totalAvailable = Number(data.total_available);
+  const uniqueIpCount = Number(data.unique_ip_count);
 
   if (
     Number.isNaN(totalTokens)
     || Number.isNaN(totalUsed)
     || Number.isNaN(totalAvailable)
+    || Number.isNaN(uniqueIpCount)
+    || !data.token
   ) {
     throw new Error("额度数据异常，请确认 key 是否有效。");
   }
 
-  return { totalTokens, totalUsed, totalAvailable };
+  return {
+    totalTokens,
+    totalUsed,
+    totalAvailable,
+    uniqueIpCount,
+    token: data.token,
+  };
 };
 
 const fetchLogData = async (key) => {
-  const payload = await fetchWithAuth(`/api/log/token?key=${encodeURIComponent(key)}`, key);
+  const payload = await fetchWithAuth("/api/log/token", key);
   const data = payload && payload.data ? payload.data : [];
   if (!payload || payload.success !== true) {
     const message = payload && payload.message ? payload.message : "记录数据不完整";
@@ -290,6 +309,7 @@ const fetchLogData = async (key) => {
 };
 
 const fetchUsage = async () => {
+  if (isLoading.value) return;
   const rawKey = apiKey.value.trim();
   if (!rawKey) {
     statusText.value = "请先填写 Key，再进行查询。";
@@ -310,6 +330,8 @@ const fetchUsage = async () => {
     tokenUsageValue.value = usageData.totalTokens;
     usedBalanceValue.value = usageData.totalUsed;
     balanceValue.value = usageData.totalAvailable;
+    ipCountValue.value = usageData.uniqueIpCount;
+    tokenInfo.value = usageData.token;
 
     if (Array.isArray(logData)) {
       logItems.value = logData;
@@ -338,8 +360,4 @@ const nextPage = () => {
     currentPage.value += 1;
   }
 };
-
-watch(sortOrder, () => {
-  currentPage.value = 1;
-});
 </script>

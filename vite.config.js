@@ -23,6 +23,8 @@ const handleApi = async (req, res) => {
 
   res.statusCode = 200;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store, private");
+  res.setHeader("Vary", "Authorization");
   res.end(JSON.stringify(payload));
 };
 
@@ -33,6 +35,8 @@ const dbApiPlugin = () => {
     handleApi(req, res).catch((error) => {
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store, private");
+      res.setHeader("Vary", "Authorization");
       res.end(JSON.stringify({ code: false, success: false, message: `查询失败：${error.message}` }));
     });
   };

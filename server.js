@@ -45,6 +45,8 @@ const serveFile = (filePath, res) => {
 const sendJson = (res, payload) => {
   res.writeHead(200, {
     "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store, private",
+    Vary: "Authorization",
     ...corsHeaders,
   });
   res.end(JSON.stringify(payload));

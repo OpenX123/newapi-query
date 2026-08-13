@@ -62,6 +62,20 @@ export const getLogLimit = () => {
 // 库里存的 key 不带 sk- 前缀。
 const normalizeKey = (rawKey) => rawKey.trim().replace(/^sk-/, "");
 
+// cache_tokens 已包含在 prompt_tokens 中；只有缓存写是额外的实际处理量。
+const cacheCreationTokensSql = `COALESCE(
+  substring(
+    COALESCE(other, '')
+    FROM '"cache_creation_tokens"[[:space:]]*:[[:space:]]*([0-9]+)'
+  )::numeric,
+  0
+)`;
+const tokenTotalSql = `
+  COALESCE(prompt_tokens, 0)::numeric
+  + COALESCE(completion_tokens, 0)::numeric
+  + ${cacheCreationTokensSql}
+`;
+
 // 按顺序在各站点查找 key 对应的令牌。
 // 返回 { site, token } 或 { errorMessage }。
 const findTokenSite = async (key) => {
@@ -74,9 +88,11 @@ const findTokenSite = async (key) => {
   for (const site of siteList) {
     try {
       const result = await site.pool.query(
-        `SELECT id, user_id, name, remain_quota, used_quota, unlimited_quota
-           FROM tokens
-          WHERE key = $1 AND deleted_at IS NULL
+        `SELECT t.id, t.user_id, t.name, t.remain_quota, t.used_quota, t.unlimited_quota,
+                u.username, u.quota AS user_quota
+           FROM tokens t
+      LEFT JOIN users u ON u.id = t.user_id AND u.deleted_at IS NULL
+          WHERE t.key = $1 AND t.deleted_at IS NULL
           LIMIT 1`,
         [key]
       );
@@ -105,47 +121,22 @@ export const queryUsage = async (rawKey) => {
   let totalAvailable = Number(token.remain_quota);
   if (token.unlimited_quota) {
     // 不限额度的令牌：余额取属主账户的余额。
-    try {
-      const result = await site.pool.query(
-        "SELECT quota FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1",
-        [token.user_id]
-      );
-      if (result.rows.length > 0) totalAvailable = Number(result.rows[0].quota);
-    } catch (error) {
-      console.error(`[db] ${site.label} 查询用户余额失败：${error.message}`);
-      return { code: false, message: "查询余额失败，请稍后重试" };
+    if (token.user_quota === null) {
+      return { code: false, message: "未找到令牌归属用户" };
     }
+    totalAvailable = Number(token.user_quota);
   }
 
-  let totalTokens;
+  let stats;
   try {
     const result = await site.pool.query(
-      `SELECT COALESCE(
-                SUM(
-                  COALESCE(prompt_tokens, 0)::numeric
-                  + COALESCE(completion_tokens, 0)::numeric
-                  + COALESCE(
-                      substring(
-                        COALESCE(other, '')
-                        FROM '"cache_tokens"[[:space:]]*:[[:space:]]*([0-9]+)'
-                      )::numeric,
-                      0
-                    )
-                  + COALESCE(
-                      substring(
-                        COALESCE(other, '')
-                        FROM '"cache_creation_tokens"[[:space:]]*:[[:space:]]*([0-9]+)'
-                      )::numeric,
-                      0
-                    )
-                ),
-                0
-              ) AS total_tokens
+      `SELECT COALESCE(SUM(${tokenTotalSql}), 0) AS total_tokens,
+              COUNT(DISTINCT NULLIF(ip, '')) AS unique_ip_count
          FROM logs
-        WHERE user_id = $1 AND token_name = $2 AND type = 2`,
-      [token.user_id, token.name]
+        WHERE token_id = $1 AND type = 2`,
+      [token.id]
     );
-    totalTokens = Number(result.rows[0].total_tokens);
+    stats = result.rows[0];
   } catch (error) {
     console.error(`[db] ${site.label} 查询累计 Token 失败：${error.message}`);
     return { code: false, message: "查询累计 Token 失败，请稍后重试" };
@@ -154,9 +145,16 @@ export const queryUsage = async (rawKey) => {
   return {
     code: true,
     data: {
-      total_tokens: totalTokens,
+      total_tokens: Number(stats.total_tokens),
       total_used: Number(token.used_quota),
       total_available: totalAvailable,
+      unique_ip_count: Number(stats.unique_ip_count),
+      token: {
+        id: Number(token.id),
+        name: token.name,
+        user_id: Number(token.user_id),
+        username: token.username || "未找到",
+      },
     },
   };
 };
@@ -176,8 +174,47 @@ const parseCacheTokens = (other) => {
   }
 };
 
+export const maskIp = (ip) => {
+  const value = typeof ip === "string" ? ip.trim() : "";
+  if (!value) return "";
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(value)) {
+    return `${value.split(".").slice(0, 3).join(".")}.*`;
+  }
+  if (/^[0-9a-f:]+$/i.test(value)) {
+    const [first, second] = value.split(":").filter(Boolean);
+    return first ? `${first}${second ? `:${second}` : ""}:*` : "已记录";
+  }
+  return "已记录";
+};
+
+export const toLogEntry = (row) => {
+  const promptTokens = Number(row.prompt_tokens) || 0;
+  const completionTokens = Number(row.completion_tokens) || 0;
+  const cache = parseCacheTokens(row.other);
+  const totalTokens = Number(row.total_tokens);
+  return {
+    id: Number(row.id),
+    created_at: Number(row.created_at),
+    model_name: row.model_name,
+    quota: Number(row.quota),
+    // 输入为纯新输入（prompt_tokens 已含缓存读，需扣除）
+    input_tokens: Math.max(0, promptTokens - cache.read),
+    output_tokens: completionTokens,
+    // 缓存 = 缓存读 + 缓存写
+    cache_tokens: cache.read + cache.creation,
+    cache_read_tokens: cache.read,
+    cache_creation_tokens: cache.creation,
+    total_tokens: Number.isFinite(totalTokens)
+      ? totalTokens
+      : promptTokens + completionTokens + cache.creation,
+    use_time: Number(row.use_time),
+    is_stream: row.is_stream,
+    ip: maskIp(row.ip),
+  };
+};
+
 // /api/log/token：返回与 new-api 兼容的 { success, data: [...] }。
-// 用 user_id + token_name 关联（老版本日志无 token_id），只取消费记录（type = 2）。
+// 按 token_id 关联，避免同一用户的同名或改名令牌串入历史记录。
 export const queryLogs = async (rawKey) => {
   const found = await findTokenSite(normalizeKey(rawKey));
   if (!found.site) {
@@ -187,37 +224,17 @@ export const queryLogs = async (rawKey) => {
   const { site, token } = found;
   try {
     const result = await site.pool.query(
-      `SELECT id, created_at, model_name, quota, prompt_tokens, completion_tokens, use_time, is_stream, other
+      `SELECT id, created_at, model_name, quota, prompt_tokens, completion_tokens, use_time, is_stream, other, ip,
+              (${tokenTotalSql}) AS total_tokens
          FROM logs
-        WHERE user_id = $1 AND token_name = $2 AND type = 2
-        ORDER BY created_at DESC
+        WHERE token_id = $1 AND type = 2
+        ORDER BY total_tokens DESC, created_at DESC
         LIMIT $3`,
-      [token.user_id, token.name, getLogLimit()]
+      [token.id, getLogLimit()]
     );
     return {
       success: true,
-      data: result.rows.map((row) => {
-        const promptTokens = Number(row.prompt_tokens) || 0;
-        const completionTokens = Number(row.completion_tokens) || 0;
-        const cache = parseCacheTokens(row.other);
-        return {
-          id: Number(row.id),
-          created_at: Number(row.created_at),
-          model_name: row.model_name,
-          quota: Number(row.quota),
-          // 输入为纯新输入（prompt_tokens 已含缓存读，需扣除）
-          input_tokens: Math.max(0, promptTokens - cache.read),
-          output_tokens: completionTokens,
-          // 缓存 = 缓存读 + 缓存写
-          cache_tokens: cache.read + cache.creation,
-          cache_read_tokens: cache.read,
-          cache_creation_tokens: cache.creation,
-          prompt_tokens: promptTokens,
-          completion_tokens: completionTokens,
-          use_time: Number(row.use_time),
-          is_stream: row.is_stream,
-        };
-      }),
+      data: result.rows.map(toLogEntry),
     };
   } catch (error) {
     console.error(`[db] ${site.label} 查询日志失败：${error.message}`);
