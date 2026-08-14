@@ -39,34 +39,19 @@
 
       <section class="results">
         <div class="card">
-          <p class="card-label">消耗 Token</p>
-          <p class="card-value">{{ tokenUsageText }}</p>
-          <p class="card-caption">当前令牌全部消费记录的实际处理量</p>
+          <p class="card-label">Token 统计</p>
+          <p class="card-value">{{ tokenStatsText }}</p>
+          <p class="card-caption">实际 Token / 总量</p>
         </div>
         <div class="card">
-          <p class="card-label">令牌归属</p>
-          <p class="card-value">{{ tokenOwnerText }}</p>
-          <p class="card-caption">用户 ID：{{ tokenUserIdText }} · Token：{{ tokenNameText }}</p>
+          <p class="card-label">金额统计</p>
+          <p class="card-value">{{ moneyStatsText }}</p>
+          <p class="card-caption">使用金额 / 总金额</p>
         </div>
         <div class="card">
-          <p class="card-label">访问 IP</p>
-          <p class="card-value">{{ ipCountText }}</p>
-          <p class="card-caption">累计去重，未记录的 IP 不计入</p>
-        </div>
-        <div class="card">
-          <p class="card-label">消耗余额</p>
-          <p class="card-value">{{ usedBalanceText }}</p>
-          <p class="card-caption">按美元格式展示</p>
-        </div>
-        <div class="card">
-          <p class="card-label">总额度</p>
-          <p class="card-value">{{ totalQuotaText }}</p>
-          <p class="card-caption">原始额度总量</p>
-        </div>
-        <div class="card">
-          <p class="card-label">剩余额度</p>
-          <p class="card-value">{{ balanceText }}</p>
-          <p class="card-caption">原始剩余额度</p>
+          <p class="card-label">额度统计</p>
+          <p class="card-value">{{ quotaStatsText }}</p>
+          <p class="card-caption">使用额度 / 总额度</p>
         </div>
       </section>
 
@@ -86,7 +71,6 @@
                 <th>缓存</th>
                 <th>总 Token</th>
                 <th>消耗钱</th>
-                <th>IP</th>
               </tr>
             </thead>
             <tbody>
@@ -98,7 +82,6 @@
                 <td>{{ formatCache(item.cache_tokens) }}</td>
                 <td>{{ formatTokens(item.total_tokens) }}</td>
                 <td>{{ formatCost(item.quota) }}</td>
-                <td>{{ item.ip || "未记录" }}</td>
               </tr>
             </tbody>
           </table>
@@ -151,8 +134,6 @@ const statusText = ref("请填写 Key 并点击查询。");
 const tokenUsageValue = ref(null);
 const usedBalanceValue = ref(null);
 const balanceValue = ref(null);
-const ipCountValue = ref(null);
-const tokenInfo = ref(null);
 const logItems = ref([]);
 const currentPage = ref(1);
 
@@ -170,33 +151,25 @@ const usdCostFormat = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 4,
 });
 
-const tokenUsageText = computed(() =>
-  typeof tokenUsageValue.value === "number"
-    ? numberFormat.format(tokenUsageValue.value)
-    : "--"
-);
-const ipCountText = computed(() =>
-  typeof ipCountValue.value === "number"
-    ? `${numberFormat.format(ipCountValue.value)} 个`
-    : "--"
-);
-const tokenOwnerText = computed(() => tokenInfo.value?.username || "--");
-const tokenUserIdText = computed(() => tokenInfo.value?.user_id ?? "--");
-const tokenNameText = computed(() => tokenInfo.value?.name || "--");
-const usedBalanceText = computed(() =>
-  typeof usedBalanceValue.value === "number"
-    ? usdFormat.format(usedBalanceValue.value / TOKEN_TO_USD_RATE)
-    : "--"
-);
-const totalQuotaText = computed(() =>
+const totalQuotaValue = computed(() =>
   typeof usedBalanceValue.value === "number" && typeof balanceValue.value === "number"
-    ? `${numberFormat.format(usedBalanceValue.value + balanceValue.value)} 额度`
-    : "--"
+    ? usedBalanceValue.value + balanceValue.value
+    : null
 );
-const balanceText = computed(() =>
-  typeof balanceValue.value === "number"
-    ? `${numberFormat.format(balanceValue.value)} 额度`
-    : "--"
+const tokenStatsText = computed(() =>
+  typeof tokenUsageValue.value === "number" && typeof totalQuotaValue.value === "number"
+    ? `${numberFormat.format(tokenUsageValue.value)} / ${numberFormat.format(totalQuotaValue.value)}`
+    : "-- / --"
+);
+const moneyStatsText = computed(() =>
+  typeof usedBalanceValue.value === "number" && typeof totalQuotaValue.value === "number"
+    ? `${usdFormat.format(usedBalanceValue.value / TOKEN_TO_USD_RATE)} / ${usdFormat.format(totalQuotaValue.value / TOKEN_TO_USD_RATE)}`
+    : "-- / --"
+);
+const quotaStatsText = computed(() =>
+  typeof usedBalanceValue.value === "number" && typeof totalQuotaValue.value === "number"
+    ? `${numberFormat.format(usedBalanceValue.value)} / ${numberFormat.format(totalQuotaValue.value)}`
+    : "-- / --"
 );
 
 const formatTokens = (value) => {
@@ -241,8 +214,6 @@ const resetValues = () => {
   tokenUsageValue.value = null;
   usedBalanceValue.value = null;
   balanceValue.value = null;
-  ipCountValue.value = null;
-  tokenInfo.value = null;
 };
 
 const resetLogs = () => {
@@ -277,14 +248,11 @@ const fetchUsageData = async (key) => {
   const totalTokens = Number(data.total_tokens);
   const totalUsed = Number(data.total_used);
   const totalAvailable = Number(data.total_available);
-  const uniqueIpCount = Number(data.unique_ip_count);
 
   if (
     Number.isNaN(totalTokens)
     || Number.isNaN(totalUsed)
     || Number.isNaN(totalAvailable)
-    || Number.isNaN(uniqueIpCount)
-    || !data.token
   ) {
     throw new Error("额度数据异常，请确认 key 是否有效。");
   }
@@ -293,8 +261,6 @@ const fetchUsageData = async (key) => {
     totalTokens,
     totalUsed,
     totalAvailable,
-    uniqueIpCount,
-    token: data.token,
   };
 };
 
@@ -330,8 +296,6 @@ const fetchUsage = async () => {
     tokenUsageValue.value = usageData.totalTokens;
     usedBalanceValue.value = usageData.totalUsed;
     balanceValue.value = usageData.totalAvailable;
-    ipCountValue.value = usageData.uniqueIpCount;
-    tokenInfo.value = usageData.token;
 
     if (Array.isArray(logData)) {
       logItems.value = logData;

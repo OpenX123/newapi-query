@@ -88,8 +88,8 @@ const findTokenSite = async (key) => {
   for (const site of siteList) {
     try {
       const result = await site.pool.query(
-        `SELECT t.id, t.user_id, t.name, t.remain_quota, t.used_quota, t.unlimited_quota,
-                u.username, u.quota AS user_quota
+        `SELECT t.id, t.remain_quota, t.used_quota, t.unlimited_quota,
+                u.quota AS user_quota
            FROM tokens t
       LEFT JOIN users u ON u.id = t.user_id AND u.deleted_at IS NULL
           WHERE t.key = $1 AND t.deleted_at IS NULL
@@ -130,8 +130,7 @@ export const queryUsage = async (rawKey) => {
   let stats;
   try {
     const result = await site.pool.query(
-      `SELECT COALESCE(SUM(${tokenTotalSql}), 0) AS total_tokens,
-              COUNT(DISTINCT NULLIF(ip, '')) AS unique_ip_count
+      `SELECT COALESCE(SUM(${tokenTotalSql}), 0) AS total_tokens
          FROM logs
         WHERE token_id = $1 AND type = 2`,
       [token.id]
@@ -148,13 +147,6 @@ export const queryUsage = async (rawKey) => {
       total_tokens: Number(stats.total_tokens),
       total_used: Number(token.used_quota),
       total_available: totalAvailable,
-      unique_ip_count: Number(stats.unique_ip_count),
-      token: {
-        id: Number(token.id),
-        name: token.name,
-        user_id: Number(token.user_id),
-        username: token.username || "未找到",
-      },
     },
   };
 };
@@ -172,19 +164,6 @@ const parseCacheTokens = (other) => {
   } catch {
     return { read: 0, creation: 0 };
   }
-};
-
-export const maskIp = (ip) => {
-  const value = typeof ip === "string" ? ip.trim() : "";
-  if (!value) return "";
-  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(value)) {
-    return `${value.split(".").slice(0, 3).join(".")}.*`;
-  }
-  if (/^[0-9a-f:]+$/i.test(value)) {
-    const [first, second] = value.split(":").filter(Boolean);
-    return first ? `${first}${second ? `:${second}` : ""}:*` : "已记录";
-  }
-  return "已记录";
 };
 
 export const toLogEntry = (row) => {
@@ -209,7 +188,6 @@ export const toLogEntry = (row) => {
       : promptTokens + completionTokens + cache.creation,
     use_time: Number(row.use_time),
     is_stream: row.is_stream,
-    ip: maskIp(row.ip),
   };
 };
 
@@ -224,12 +202,12 @@ export const queryLogs = async (rawKey) => {
   const { site, token } = found;
   try {
     const result = await site.pool.query(
-      `SELECT id, created_at, model_name, quota, prompt_tokens, completion_tokens, use_time, is_stream, other, ip,
+      `SELECT id, created_at, model_name, quota, prompt_tokens, completion_tokens, use_time, is_stream, other,
               (${tokenTotalSql}) AS total_tokens
          FROM logs
         WHERE token_id = $1 AND type = 2
         ORDER BY total_tokens DESC, created_at DESC
-        LIMIT $3`,
+        LIMIT $2`,
       [token.id, getLogLimit()]
     );
     return {
