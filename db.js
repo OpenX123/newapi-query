@@ -130,9 +130,17 @@ export const queryUsage = async (rawKey) => {
   let stats;
   try {
     const result = await site.pool.query(
-      `SELECT COALESCE(SUM(${tokenTotalSql}), 0) AS total_tokens
-         FROM logs
-        WHERE token_id = $1 AND type = 2`,
+      `SELECT
+         COALESCE((
+           SELECT SUM(${tokenTotalSql})
+             FROM logs
+            WHERE token_id = $1 AND type = 2
+         ), 0)
+         + COALESCE((
+           SELECT total_tokens
+             FROM log_archive_token_totals
+            WHERE token_id = $1
+         ), 0) AS total_tokens`,
       [token.id]
     );
     stats = result.rows[0];

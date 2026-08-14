@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { toLogEntry } from "./db.js";
 
 const entry = toLogEntry({
@@ -14,5 +15,9 @@ const entry = toLogEntry({
 
 assert.equal(entry.input_tokens + entry.output_tokens + entry.cache_tokens, entry.total_tokens);
 assert.equal(entry.total_tokens, 125);
+
+const source = readFileSync(new URL("./db.js", import.meta.url), "utf8");
+assert.match(source, /FROM log_archive_token_totals/);
+assert.match(source, /FROM logs[\s\S]*WHERE token_id = \$1 AND type = 2/);
 
 console.log("db checks passed");
