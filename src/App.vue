@@ -64,9 +64,9 @@
           <p class="card-caption">原始额度总量</p>
         </div>
         <div class="card">
-          <p class="card-label">剩余余额</p>
+          <p class="card-label">剩余额度</p>
           <p class="card-value">{{ balanceText }}</p>
-          <p class="card-caption">按美元格式展示</p>
+          <p class="card-caption">原始剩余额度</p>
         </div>
       </section>
 
@@ -141,7 +141,7 @@
 import { computed, ref } from "vue";
 
 const API_BASE = "";
-const TOKEN_TO_USD_RATE = 2000000;
+const TOKEN_TO_USD_RATE = 500000;
 const PAGE_SIZE = 20;
 
 const apiKey = ref("");
@@ -195,7 +195,7 @@ const totalQuotaText = computed(() =>
 );
 const balanceText = computed(() =>
   typeof balanceValue.value === "number"
-    ? usdFormat.format(balanceValue.value / TOKEN_TO_USD_RATE)
+    ? `${numberFormat.format(balanceValue.value)} 额度`
     : "--"
 );
 
