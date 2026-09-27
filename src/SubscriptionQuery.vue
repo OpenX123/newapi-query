@@ -12,20 +12,31 @@
     <article v-for="item in items" :key="item.id" class="card">
       <h2 class="card-value">{{ item.title }}</h2>
       <p class="card-label">#{{ item.id }} · {{ statusLabel(item.status) }}</p>
-      <template v-if="item.weekly_amount > 0">
-        <p class="card-value">本周已用 {{ money(item.weekly_used) }} / {{ money(item.weekly_amount) }}</p>
-        <progress :value="Math.min(item.weekly_used, item.weekly_amount)" :max="item.weekly_amount" :aria-label="`${item.title}周额度使用进度`" style="width: 100%"></progress>
-        <p class="card-label">剩余 {{ money(item.weekly_remaining) }} · 已用 {{ (item.weekly_used / item.weekly_amount * 100).toFixed(1) }}%</p>
+      <div class="window-usage">
+        <p class="card-label">5h 额度已用 / 总额度</p>
+        <p class="window-amount">{{ money(item.amount_used) }} <span>/ {{ item.amount_total > 0 ? money(item.amount_total) : '不限额' }}</span></p>
+        <progress v-if="item.amount_total > 0" :value="Math.min(item.amount_used, item.amount_total)" :max="item.amount_total" :aria-label="`${item.title}5h 额度使用进度`"></progress>
+        <p class="window-reset">下次重置：{{ date(item.next_reset_time) }}</p>
+      </div>
+      <div v-if="item.weekly_amount > 0" class="weekly-usage">
+        <p class="card-label">周额度 {{ money(item.weekly_used) }} / {{ money(item.weekly_amount) }} · {{ (item.weekly_used / item.weekly_amount * 100).toFixed(1) }}%</p>
         <p class="card-label">下次周重置：{{ date(item.weekly_reset_time) }}</p>
-      </template>
+      </div>
       <p v-else class="card-label">{{ item.weekly_amount === null ? '该站点未提供周额度数据' : '此套餐未设置独立周限额' }}</p>
-      <p class="card-label">套餐额度已用：{{ money(item.amount_used) }} / {{ item.amount_total > 0 ? money(item.amount_total) : '不限额' }}</p>
-      <p class="card-label">下次额度窗口重置：{{ date(item.next_reset_time) }}</p>
       <p class="card-caption">开始：{{ date(item.start_time) }}</p>
       <p class="card-caption">到期：{{ date(item.end_time) }}</p>
     </article>
   </section>
 </template>
+
+<style scoped>
+.window-usage { display: grid; gap: 12px; padding: 18px 0; }
+.window-amount { margin: 0; color: #263ec5; font-size: 32px; font-weight: 700; }
+.window-amount span { color: #6b7280; font-size: 18px; font-weight: 400; }
+.window-usage progress { width: 100%; height: 10px; accent-color: #5468ff; }
+.window-reset { margin: 0; color: #263ec5; font-size: 16px; font-weight: 600; }
+.weekly-usage { display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid #e5e7eb; }
+</style>
 
 <script setup>
 import { onUnmounted, ref, watch } from "vue";
