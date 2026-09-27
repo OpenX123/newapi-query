@@ -7,6 +7,10 @@ process.env.DATABASE_URL = "postgresql://localhost/test";
 process.env.NEW_API_BASE_URL = "https://new-api.invalid";
 process.env.NEW_API_ADMIN_USER_ID = "1";
 process.env.NEW_API_ADMIN_TOKEN = "test-admin-token";
+// 测试不继承部署环境里的第二站点配置。
+delete process.env.NEW_API_BASE_URL_2;
+delete process.env.NEW_API_ADMIN_USER_ID_2;
+delete process.env.NEW_API_ADMIN_TOKEN_2;
 const now = Math.floor(Date.now() / 1000);
 const sub = { id: 19, user_id: 42, plan_id: 7, status: "active", start_time: now - 100,
   end_time: now + 2000000, amount_total: 25000000, amount_used: 640000,
