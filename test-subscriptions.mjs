@@ -13,7 +13,7 @@ delete process.env.NEW_API_ADMIN_USER_ID_2;
 delete process.env.NEW_API_ADMIN_TOKEN_2;
 const now = Math.floor(Date.now() / 1000);
 const sub = { id: 19, user_id: 42, plan_id: 7, status: "active", start_time: now - 100,
-  end_time: now + 2000000, amount_total: 25000000, amount_used: 640000,
+  end_time: now + 2000000, next_reset_time: now + 18000, amount_total: 25000000, amount_used: 640000,
   weekly_amount: 600000000, weekly_used: 37445000, weekly_reset_time: now + 604700 };
 let records = [{ subscription: sub }];
 let token = { user_id: 42, status: 1, user_status: 1, expired_time: -1 };
@@ -40,6 +40,7 @@ try {
   assert.equal(result.data[0].title, "2人拼车");
   assert.equal(result.data[0].weekly_remaining, 562555000);
   assert.equal(result.data[0].weekly_used, 37445000);
+  assert.equal(result.data[0].next_reset_time, sub.next_reset_time);
   assert.ok(!JSON.stringify(result).includes("test-admin-token"));
   assert.equal(result.data[0].user_id, undefined);
 

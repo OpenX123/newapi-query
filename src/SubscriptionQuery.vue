@@ -20,6 +20,7 @@
       </template>
       <p v-else class="card-label">{{ item.weekly_amount === null ? '该站点未提供周额度数据' : '此套餐未设置独立周限额' }}</p>
       <p class="card-label">套餐额度已用：{{ money(item.amount_used) }} / {{ item.amount_total > 0 ? money(item.amount_total) : '不限额' }}</p>
+      <p class="card-label">下次额度窗口重置：{{ date(item.next_reset_time) }}</p>
       <p class="card-caption">开始：{{ date(item.start_time) }}</p>
       <p class="card-caption">到期：{{ date(item.end_time) }}</p>
     </article>

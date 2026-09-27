@@ -91,6 +91,7 @@ export async function fetchUserSubscriptions(userId, siteIndex = 0) {
       status: active ? "active" : sub.status === "active" ? "expired" : sub.status,
       start_time: numeric("start_time"), end_time: end,
       amount_total: numeric("amount_total"), amount_used: numeric("amount_used"),
+      next_reset_time: numeric("next_reset_time", true),
       weekly_amount: total, weekly_used: used,
       weekly_remaining: total > 0 ? Math.max(0, total - used) : null,
       weekly_reset_time: active && reset > 0 && reset < end ? reset : null,
