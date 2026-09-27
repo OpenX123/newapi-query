@@ -1,12 +1,17 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
-import { queryUsage, queryLogs } from "./db.js";
+import { queryUsage, queryLogs, querySubscriptions } from "./db.js";
 
-const API_PATHS = ["/api/usage/token", "/api/log/token"];
+const API_PATHS = ["/api/usage/token", "/api/log/token", "/api/subscriptions/token"];
 
 // dev / preview 模式直接复用 db.js 查库，行为与 server.js 一致。
 // 本地开发需要先设置 DATABASE_URL（可选 DATABASE_URL_2…）。
 const handleApi = async (req, res) => {
+  if (req.method !== "GET") {
+    res.writeHead(405, { Allow: "GET" });
+    res.end();
+    return;
+  }
   const requestUrl = new URL(req.url, "http://localhost");
   const fromQuery = requestUrl.searchParams.get("key");
   const auth = req.headers.authorization || "";
@@ -15,6 +20,8 @@ const handleApi = async (req, res) => {
   let payload;
   if (!key.trim()) {
     payload = { code: false, success: false, message: "缺少 API Key" };
+  } else if (requestUrl.pathname === "/api/subscriptions/token") {
+    payload = await querySubscriptions(key);
   } else if (requestUrl.pathname === "/api/usage/token") {
     payload = await queryUsage(key);
   } else {

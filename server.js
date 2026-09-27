@@ -3,7 +3,7 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { URL } from "url";
-import { assertConfigured, queryUsage, queryLogs } from "./db.js";
+import { assertConfigured, queryUsage, queryLogs, querySubscriptions } from "./db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -61,12 +61,21 @@ const extractKey = (req, requestUrl) => {
 };
 
 const handleApi = async (req, res, requestUrl) => {
+  if (req.method !== "GET") {
+    res.writeHead(405, { Allow: "GET" });
+    res.end();
+    return;
+  }
   const key = extractKey(req, requestUrl);
   if (!key.trim()) {
     sendJson(res, { code: false, success: false, message: "缺少 API Key" });
     return;
   }
 
+  if (requestUrl.pathname === "/api/subscriptions/token") {
+    sendJson(res, await querySubscriptions(key));
+    return;
+  }
   if (requestUrl.pathname === "/api/usage/token") {
     sendJson(res, await queryUsage(key));
     return;
@@ -88,7 +97,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (requestUrl.pathname === "/api/usage/token" || requestUrl.pathname === "/api/log/token") {
+  if (["/api/usage/token", "/api/log/token", "/api/subscriptions/token"].includes(requestUrl.pathname)) {
     handleApi(req, res, requestUrl).catch((error) => {
       console.error(`[server] 处理请求失败：${error.message}`);
       sendJson(res, { code: false, success: false, message: "服务内部错误" });

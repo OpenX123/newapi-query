@@ -1,4 +1,11 @@
 import pg from "pg";
+import { fetchUserSubscriptions, resolveSubscriptionUser } from "./subscriptions.js";
+
+try {
+  process.loadEnvFile();
+} catch (error) {
+  if (error.code !== "ENOENT") throw error;
+}
 
 const { Pool } = pg;
 
@@ -28,6 +35,7 @@ const loadSites = () => {
     urls.push(url);
   }
   return urls.map((url, index) => ({
+    index,
     label: `站点${index + 1}(${maskUrl(url)})`,
     pool: new Pool({
       connectionString: url,
@@ -44,11 +52,11 @@ const getSites = () => {
   return sites;
 };
 
-// 启动时调用：未配置任何 DATABASE_URL 时抛错，让进程尽早失败并给出提示。
+// 支持数据库查询，或只配置管理接口的独立套餐查询。
 export const assertConfigured = () => {
-  if (getSites().length === 0) {
+  if (getSites().length === 0 && !(process.env.NEW_API_BASE_URL && process.env.NEW_API_ADMIN_TOKEN && process.env.NEW_API_ADMIN_USER_ID)) {
     throw new Error(
-      "未配置数据库连接：请设置环境变量 DATABASE_URL（更多站点用 DATABASE_URL_2、DATABASE_URL_3…）"
+      "请配置 DATABASE_URL，或配置套餐查询的 NEW_API_BASE_URL、NEW_API_ADMIN_TOKEN、NEW_API_ADMIN_USER_ID"
     );
   }
 };
@@ -88,8 +96,8 @@ const findTokenSite = async (key) => {
   for (const site of siteList) {
     try {
       const result = await site.pool.query(
-        `SELECT t.id, t.remain_quota, t.used_quota, t.unlimited_quota,
-                u.quota AS user_quota
+        `SELECT t.id, t.user_id, t.status, t.expired_time, t.remain_quota, t.used_quota, t.unlimited_quota,
+                u.quota AS user_quota, u.status AS user_status
            FROM tokens t
       LEFT JOIN users u ON u.id = t.user_id AND u.deleted_at IS NULL
           WHERE t.key = $1 AND t.deleted_at IS NULL
@@ -108,6 +116,33 @@ const findTokenSite = async (key) => {
   return {
     errorMessage: reachable > 0 ? "无效的令牌" : "所有站点数据库连接失败，请稍后重试",
   };
+};
+
+// 用户只能凭自己的有效 Key 查询归属账户，不接受前端传来的用户 ID。
+export const querySubscriptions = async (rawKey) => {
+  if (!rawKey.trim() || rawKey.length > 256) {
+    return { success: false, message: "无效的 API Key" };
+  }
+  if (getSites().length === 0) {
+    try {
+      const userId = await resolveSubscriptionUser(rawKey);
+      return { success: true, data: await fetchUserSubscriptions(userId) };
+    } catch (error) {
+      return { success: false, message: error.message };
+    }
+  }
+  const found = await findTokenSite(normalizeKey(rawKey));
+  if (!found.site) return { success: false, message: found.errorMessage };
+  const { token, site } = found;
+  if (Number(token.user_status) !== 1 || ![1, 4].includes(Number(token.status))
+    || (Number(token.expired_time) !== -1 && Number(token.expired_time) <= Date.now() / 1000)) {
+    return { success: false, message: "Key 或所属账户已停用、过期" };
+  }
+  try {
+    return { success: true, data: await fetchUserSubscriptions(token.user_id, site.index) };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
 };
 
 // /api/usage/token：返回与 new-api 兼容的 { code, data: { total_used, total_available } }。

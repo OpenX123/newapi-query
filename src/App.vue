@@ -10,13 +10,19 @@
         <span class="brand-name">CC API</span>
       </div>
       <p class="hero-eyebrow">Balance & Usage</p>
-      <h1 class="hero-title">查询令牌余额与用量</h1>
+      <h1 class="hero-title">{{ mode === 'subscriptions' ? '查询套餐与周用量' : '查询令牌余额与用量' }}</h1>
       <p class="hero-subtitle">
-        输入你的 Key，即可查看当前额度用量与余额。隐私优先，Key 仅在本地请求中使用。
+        输入你的 Key，即可查询余额、用量和套餐。Key 仅用于查询，不会保存。
       </p>
     </header>
 
     <main class="panel">
+      <nav class="input-row" aria-label="查询类型">
+        <button class="btn" :class="{ 'btn-secondary': mode !== 'usage' }" :aria-pressed="mode === 'usage'" @click="mode = 'usage'">余额与记录</button>
+        <button class="btn" :class="{ 'btn-secondary': mode !== 'subscriptions' }" :aria-pressed="mode === 'subscriptions'" @click="mode = 'subscriptions'">套餐查询</button>
+      </nav>
+      <SubscriptionQuery v-if="mode === 'subscriptions'" />
+      <template v-else>
       <section class="query">
         <label class="input-label" for="apiKey">API Key</label>
         <div class="input-row">
@@ -116,12 +122,16 @@
       <section class="status">
         <p class="status-text">{{ statusText }}</p>
       </section>
+      </template>
     </main>
   </div>
 </template>
 
 <script setup>
 import { computed, ref } from "vue";
+import SubscriptionQuery from "./SubscriptionQuery.vue";
+
+const mode = ref("usage");
 
 const API_BASE = "";
 const TOKEN_TO_USD_RATE = 500000;

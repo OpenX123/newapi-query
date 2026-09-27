@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "server": "node server.js",
-    "test": "node test-db.mjs"
+    "test": "node test-db.mjs && node test-subscriptions.mjs"
   },
   "dependencies": {
     "pg": "^8.22.0"

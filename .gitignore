@@ -39,6 +39,8 @@ build/
 .vite
 
 # Testing
+.playwright-cli/
+output/playwright/
 coverage
 *.lcov
 .nyc_output
