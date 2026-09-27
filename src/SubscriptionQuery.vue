@@ -31,10 +31,10 @@
 
 <style scoped>
 .window-usage { display: grid; gap: 12px; padding: 18px 0; }
-.window-amount { margin: 0; color: #263ec5; font-size: 32px; font-weight: 700; }
-.window-amount span { color: #6b7280; font-size: 18px; font-weight: 400; }
-.window-usage progress { width: 100%; height: 10px; accent-color: #5468ff; }
-.window-reset { margin: 0; color: #263ec5; font-size: 16px; font-weight: 600; }
+.window-amount { margin: 0; color: #111827; font-size: 18px; font-weight: 400; }
+.window-amount span { color: inherit; font-size: inherit; font-weight: inherit; }
+.window-usage progress { width: 100%; height: 10px; accent-color: #111827; }
+.window-reset { margin: 0; color: #111827; font-size: 18px; font-weight: 400; }
 .weekly-usage { display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid #e5e7eb; }
 </style>
 
