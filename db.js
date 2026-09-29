@@ -70,7 +70,7 @@ export const getLogLimit = () => {
 // 库里存的 key 不带 sk- 前缀。
 const normalizeKey = (rawKey) => rawKey.trim().replace(/^sk-/, "");
 
-// cache_tokens 已包含在 prompt_tokens 中；只有缓存写是额外的实际处理量。
+// Claude 日志的 prompt_tokens 不含缓存读写；其他日志的缓存读已含在 prompt_tokens 中。
 const cacheCreationTokensSql = `COALESCE(
   substring(
     COALESCE(other, '')
@@ -78,10 +78,18 @@ const cacheCreationTokensSql = `COALESCE(
   )::numeric,
   0
 )`;
+const cacheReadTokensSql = `COALESCE(
+  substring(COALESCE(other, '') FROM '"cache_tokens"[[:space:]]*:[[:space:]]*([0-9]+)')::numeric,
+  0
+)`;
+const walletLogSql = `COALESCE(other, '') ~ '"billing_source"[[:space:]]*:[[:space:]]*"wallet"'`;
+const subscriptionLogSql = `COALESCE(other, '') ~ '"billing_source"[[:space:]]*:[[:space:]]*"subscription"'`;
+const isClaudeSql = `COALESCE(other, '') ~ '"claude"[[:space:]]*:[[:space:]]*true'`;
 const tokenTotalSql = `
   COALESCE(prompt_tokens, 0)::numeric
   + COALESCE(completion_tokens, 0)::numeric
   + ${cacheCreationTokensSql}
+  + CASE WHEN ${isClaudeSql} THEN ${cacheReadTokensSql} ELSE 0 END
 `;
 
 // 按顺序在各站点查找 key 对应的令牌。
@@ -175,7 +183,11 @@ export const queryUsage = async (rawKey) => {
            SELECT total_tokens
              FROM log_archive_token_totals
             WHERE token_id = $1
-         ), 0) AS total_tokens`,
+         ), 0) AS total_tokens,
+         (SELECT COALESCE(SUM(CASE WHEN ${walletLogSql} THEN quota ELSE 0 END), 0)
+            FROM logs WHERE token_id = $1 AND type = 2) AS wallet_used_quota,
+         (SELECT COUNT(*) FROM logs WHERE token_id = $1 AND type = 2
+            AND NOT (${walletLogSql}) AND NOT (${subscriptionLogSql})) AS unknown_billing_count`,
       [token.id]
     );
     stats = result.rows[0];
@@ -190,6 +202,8 @@ export const queryUsage = async (rawKey) => {
       total_tokens: Number(stats.total_tokens),
       total_used: Number(token.used_quota),
       total_available: totalAvailable,
+      wallet_used_quota: Number(stats.wallet_used_quota),
+      unknown_billing_count: Number(stats.unknown_billing_count),
     },
   };
 };
@@ -197,15 +211,18 @@ export const queryUsage = async (rawKey) => {
 // 从 logs.other（JSON 文本）里解析缓存 token。
 // cache_tokens = 缓存读（已包含在 prompt_tokens 内），cache_creation_tokens = 缓存写（额外单列）。
 const parseCacheTokens = (other) => {
-  if (!other) return { read: 0, creation: 0 };
+  if (!other) return { read: 0, creation: 0, claude: false, billingSource: null, walletQuotaDeducted: null };
   try {
     const parsed = JSON.parse(other);
     return {
       read: Number(parsed.cache_tokens) || 0,
       creation: Number(parsed.cache_creation_tokens) || 0,
+      claude: parsed.claude === true,
+      billingSource: parsed.billing_source || null,
+      walletQuotaDeducted: parsed.wallet_quota_deducted == null ? null : Number(parsed.wallet_quota_deducted),
     };
   } catch {
-    return { read: 0, creation: 0 };
+    return { read: 0, creation: 0, claude: false, billingSource: null, walletQuotaDeducted: null };
   }
 };
 
@@ -219,8 +236,12 @@ export const toLogEntry = (row) => {
     created_at: Number(row.created_at),
     model_name: row.model_name,
     quota: Number(row.quota),
-    // 输入为纯新输入（prompt_tokens 已含缓存读，需扣除）
-    input_tokens: Math.max(0, promptTokens - cache.read),
+    billing_source: cache.billingSource,
+    wallet_quota_deducted: cache.walletQuotaDeducted,
+    actual_wallet_quota: cache.billingSource === "subscription" ? 0
+      : cache.billingSource === "wallet" ? Number(row.quota) : null,
+    // Claude 的输入不含缓存，其他模型的输入已包含缓存读。
+    input_tokens: cache.claude ? promptTokens : Math.max(0, promptTokens - cache.read),
     output_tokens: completionTokens,
     // 缓存 = 缓存读 + 缓存写
     cache_tokens: cache.read + cache.creation,
@@ -228,7 +249,7 @@ export const toLogEntry = (row) => {
     cache_creation_tokens: cache.creation,
     total_tokens: Number.isFinite(totalTokens)
       ? totalTokens
-      : promptTokens + completionTokens + cache.creation,
+      : promptTokens + completionTokens + cache.creation + (cache.claude ? cache.read : 0),
     use_time: Number(row.use_time),
     is_stream: row.is_stream,
   };
@@ -249,7 +270,7 @@ export const queryLogs = async (rawKey) => {
               (${tokenTotalSql}) AS total_tokens
          FROM logs
         WHERE token_id = $1 AND type = 2
-        ORDER BY total_tokens DESC, created_at DESC
+        ORDER BY created_at DESC, id DESC
         LIMIT $2`,
       [token.id, getLogLimit()]
     );

@@ -50,21 +50,21 @@
           <p class="card-caption">实际 Token / 总量</p>
         </div>
         <div class="card">
-          <p class="card-label">金额统计</p>
+          <p class="card-label">钱包实扣</p>
           <p class="card-value">{{ moneyStatsText }}</p>
-          <p class="card-caption">使用金额 / 总金额</p>
+          <p class="card-caption">仅统计未归档且标记钱包的记录{{ unknownBillingCount ? `；${unknownBillingCount} 条旧记录无法归类` : "" }}</p>
         </div>
         <div class="card">
           <p class="card-label">额度统计</p>
           <p class="card-value">{{ quotaStatsText }}</p>
-          <p class="card-caption">使用额度 / 总额度</p>
+          <p class="card-caption">计费额度（含订阅）/ 总额度，非钱包实扣</p>
         </div>
       </section>
 
       <section class="records">
         <div class="records-header">
           <h2 class="records-title">详细使用记录</h2>
-          <p class="records-subtitle">按单次总 Token 从高到低排列；同量时最近在前。</p>
+          <p class="records-subtitle">按时间从近到远排列；只显示可确认的钱包实际扣费，订阅不扣钱包。</p>
         </div>
         <div class="table-wrapper">
           <table class="table">
@@ -76,7 +76,7 @@
                 <th>输出</th>
                 <th>缓存</th>
                 <th>总 Token</th>
-                <th>消耗钱</th>
+                <th>扣费</th>
               </tr>
             </thead>
             <tbody>
@@ -87,7 +87,7 @@
                 <td>{{ formatTokens(item.output_tokens) }}</td>
                 <td>{{ formatCache(item.cache_tokens) }}</td>
                 <td>{{ formatTokens(item.total_tokens) }}</td>
-                <td>{{ formatCost(item.quota) }}</td>
+                <td>{{ item.actual_wallet_quota === null ? "未知" : item.billing_source === "subscription" ? "订阅（钱包 $0）" : formatCost(item.actual_wallet_quota) }}</td>
               </tr>
             </tbody>
           </table>
@@ -144,6 +144,8 @@ const statusText = ref("请填写 Key 并点击查询。");
 const tokenUsageValue = ref(null);
 const usedBalanceValue = ref(null);
 const balanceValue = ref(null);
+const walletUsedValue = ref(null);
+const unknownBillingCount = ref(0);
 const logItems = ref([]);
 const currentPage = ref(1);
 
@@ -172,9 +174,9 @@ const tokenStatsText = computed(() =>
     : "-- / --"
 );
 const moneyStatsText = computed(() =>
-  typeof usedBalanceValue.value === "number" && typeof totalQuotaValue.value === "number"
-    ? `${usdFormat.format(usedBalanceValue.value / TOKEN_TO_USD_RATE)} / ${usdFormat.format(totalQuotaValue.value / TOKEN_TO_USD_RATE)}`
-    : "-- / --"
+  typeof walletUsedValue.value === "number"
+    ? `已知 ${usdFormat.format(walletUsedValue.value / TOKEN_TO_USD_RATE)}`
+    : "--"
 );
 const quotaStatsText = computed(() =>
   typeof usedBalanceValue.value === "number" && typeof totalQuotaValue.value === "number"
@@ -224,6 +226,8 @@ const resetValues = () => {
   tokenUsageValue.value = null;
   usedBalanceValue.value = null;
   balanceValue.value = null;
+  walletUsedValue.value = null;
+  unknownBillingCount.value = 0;
 };
 
 const resetLogs = () => {
@@ -258,11 +262,15 @@ const fetchUsageData = async (key) => {
   const totalTokens = Number(data.total_tokens);
   const totalUsed = Number(data.total_used);
   const totalAvailable = Number(data.total_available);
+  const walletUsed = Number(data.wallet_used_quota);
+  const unknownCount = Number(data.unknown_billing_count);
 
   if (
     Number.isNaN(totalTokens)
     || Number.isNaN(totalUsed)
     || Number.isNaN(totalAvailable)
+    || !Number.isFinite(walletUsed)
+    || !Number.isSafeInteger(unknownCount)
   ) {
     throw new Error("额度数据异常，请确认 key 是否有效。");
   }
@@ -271,6 +279,8 @@ const fetchUsageData = async (key) => {
     totalTokens,
     totalUsed,
     totalAvailable,
+    walletUsed,
+    unknownCount,
   };
 };
 
@@ -306,6 +316,8 @@ const fetchUsage = async () => {
     tokenUsageValue.value = usageData.totalTokens;
     usedBalanceValue.value = usageData.totalUsed;
     balanceValue.value = usageData.totalAvailable;
+    walletUsedValue.value = usageData.walletUsed;
+    unknownBillingCount.value = usageData.unknownCount;
 
     if (Array.isArray(logData)) {
       logItems.value = logData;
