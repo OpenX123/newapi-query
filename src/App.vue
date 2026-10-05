@@ -50,9 +50,9 @@
           <p class="card-caption">实际 Token / 总量</p>
         </div>
         <div class="card">
-          <p class="card-label">钱包实扣</p>
-          <p class="card-value">{{ moneyStatsText }}</p>
-          <p class="card-caption">仅统计未归档且标记钱包的记录{{ unknownBillingCount ? `；${unknownBillingCount} 条旧记录无法归类` : "" }}</p>
+          <p class="card-label">剩余额度</p>
+          <p class="card-value">{{ remainingQuotaText }}</p>
+          <p class="card-caption">当前可用额度</p>
         </div>
         <div class="card">
           <p class="card-label">额度统计</p>
@@ -173,9 +173,9 @@ const tokenStatsText = computed(() =>
     ? `${numberFormat.format(tokenUsageValue.value)} / ${numberFormat.format(totalQuotaValue.value)}`
     : "-- / --"
 );
-const moneyStatsText = computed(() =>
-  typeof walletUsedValue.value === "number"
-    ? `已知 ${usdFormat.format(walletUsedValue.value / TOKEN_TO_USD_RATE)}`
+const remainingQuotaText = computed(() =>
+  typeof balanceValue.value === "number"
+    ? usdFormat.format(balanceValue.value / TOKEN_TO_USD_RATE)
     : "--"
 );
 const quotaStatsText = computed(() =>
